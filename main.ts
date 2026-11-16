@@ -36,10 +36,48 @@ if (!isPng && !isJpeg) {
   throw new Error("entry.png is neither PNG nor JPEG (bad magic bytes)");
 }
 
+// --- Header dimension check (max 1024x1024) -----------------------------
+// PNG: width/height are big-endian uint32s at IHDR bytes 16-23.
+// JPEG: scan segments for the first Start-Of-Frame marker (0xC0-0xCF,
+// excluding 0xC4/0xC8/0xCC); height is 2 big-endian bytes after the
+// 1-byte precision field, width follows.
+const MAX_DIM = 1024;
+let width: number, height: number;
+
+if (isPng) {
+  if (data.length < 24) throw new Error("entry.png is a truncated PNG");
+  width = data.readUInt32BE(16);
+  height = data.readUInt32BE(20);
+} else {
+  let offset = 2; // skip SOI marker
+  let found = false;
+  while (offset + 9 < data.length) {
+    if (data[offset] !== 0xff) {
+      throw new Error("entry.png has a malformed JPEG segment");
+    }
+    const marker = data[offset + 1];
+    const segLen = data.readUInt16BE(offset + 2);
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      height = data.readUInt16BE(offset + 5);
+      width = data.readUInt16BE(offset + 7);
+      found = true;
+      break;
+    }
+    offset += 2 + segLen;
+  }
+  if (!found) throw new Error("entry.png has no JPEG Start-Of-Frame segment");
+}
+
+if (width! > MAX_DIM || height! > MAX_DIM) {
+  throw new Error(
+    `entry.png is ${width}x${height}, over the ${MAX_DIM}x${MAX_DIM} cap`,
+  );
+}
+
 // --- Copy byte-for-byte --------------------------------------------------
 const outDir = process.env.MAKEFUN_OUTPUT_DIR || "/output";
 mkdirSync(outDir, { recursive: true });
 const destPath = join(outDir, "entry.png");
 copyFileSync(sourcePath, destPath);
 
-console.log(`copied entry.png (${size} bytes) -> ${destPath}`);
+console.log(`copied entry.png (${width}x${height}, ${size} bytes) -> ${destPath}`);
