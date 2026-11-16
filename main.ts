@@ -1,83 +1,88 @@
-// ai-excited-01 — make.fun entry runner (Round 5)
-// Reads entry.png beside this file, validates it, and copies it byte-for-byte
-// to $MAKEFUN_OUTPUT_DIR/entry.png (default /output).
-// Node 22, stdlib only.
+// ai-excited-01 — make.fun entry runner (Round 6)
+// Copies entry.png beside this file, byte-for-byte, to
+// $MAKEFUN_OUTPUT_DIR/entry.png (default /output) after validating it
+// against the competition gate: PNG or JPEG by magic bytes, at most
+// 1 MiB, at most 1024x1024 pixels. Node 22, stdlib only, no network,
+// fully deterministic (the copy is byte-identical on every run).
 
-import { copyFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const MAX_BYTES = 1024 * 1024; // 1 MiB hard cap for the entry image
+const MAX_BYTES = 1024 * 1024;
+const MAX_SIDE = 1024;
 
-// Resolve the directory this script lives in, so entry.png is found
-// regardless of the caller's working directory.
-const here = dirname(fileURLToPath(import.meta.url));
-const sourcePath = join(here, "entry.png");
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_SOI = Buffer.from([0xff, 0xd8, 0xff]);
 
-// --- Load and validate -------------------------------------------------
-const data = readFileSync(sourcePath);
-const size = statSync(sourcePath).size;
-
-if (size > MAX_BYTES) {
-  throw new Error(
-    `entry.png is ${size} bytes, over the ${MAX_BYTES} byte cap`,
-  );
+function fail(message: string): never {
+  throw new Error(`entry.png rejected: ${message}`);
 }
 
-// Magic-byte sniffing: accept PNG or JPEG, reject anything else.
-const isPng =
-  data.length >= 8 &&
-  data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e &&
-  data[3] === 0x47 && data[4] === 0x0d && data[5] === 0x0a &&
-  data[6] === 0x1a && data[7] === 0x0a;
-const isJpeg = data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
-
-if (!isPng && !isJpeg) {
-  throw new Error("entry.png is neither PNG nor JPEG (bad magic bytes)");
+function kindOf(buf: Buffer): "png" | "jpeg" | null {
+  if (buf.length >= 8 && buf.subarray(0, 8).equals(PNG_MAGIC)) return "png";
+  if (buf.length >= 3 && buf.subarray(0, 3).equals(JPEG_SOI)) return "jpeg";
+  return null;
 }
 
-// --- Header dimension check (max 1024x1024) -----------------------------
-// PNG: width/height are big-endian uint32s at IHDR bytes 16-23.
-// JPEG: scan segments for the first Start-Of-Frame marker (0xC0-0xCF,
-// excluding 0xC4/0xC8/0xCC); height is 2 big-endian bytes after the
-// 1-byte precision field, width follows.
-const MAX_DIM = 1024;
-let width: number, height: number;
+// PNG: width/height are big-endian uint32s at IHDR offsets 16 and 20.
+function pngSize(buf: Buffer): [number, number] {
+  if (buf.length < 24) fail("truncated PNG header");
+  return [buf.readUInt32BE(16), buf.readUInt32BE(20)];
+}
 
-if (isPng) {
-  if (data.length < 24) throw new Error("entry.png is a truncated PNG");
-  width = data.readUInt32BE(16);
-  height = data.readUInt32BE(20);
-} else {
-  let offset = 2; // skip SOI marker
-  let found = false;
-  while (offset + 9 < data.length) {
-    if (data[offset] !== 0xff) {
-      throw new Error("entry.png has a malformed JPEG segment");
+// JPEG: walk the segments until the first Start-Of-Frame marker
+// (0xC0-0xCF except DHT 0xC4, JPG 0xC8, DAC 0xCC); height sits 2 bytes
+// after the 1-byte precision field, width right after it. Standalone
+// markers (0xD0-0xD9) carry no length field; SOS (0xDA) begins the
+// scan data, so a missing SOF before it means the file is malformed.
+function jpegSize(buf: Buffer): [number, number] {
+  let pos = 2; // past the SOI marker
+  while (pos + 4 <= buf.length) {
+    if (buf[pos] !== 0xff) fail("malformed JPEG segment");
+    const marker = buf[pos + 1];
+    if (marker === 0xda) fail("no Start-Of-Frame segment before scan data");
+    if (marker >= 0xd0 && marker <= 0xd9) {
+      pos += 2;
+      continue;
     }
-    const marker = data[offset + 1];
-    const segLen = data.readUInt16BE(offset + 2);
-    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      height = data.readUInt16BE(offset + 5);
-      width = data.readUInt16BE(offset + 7);
-      found = true;
-      break;
+    const segLen = buf.readUInt16BE(pos + 2);
+    if (segLen < 2 || pos + 2 + segLen > buf.length) {
+      fail("JPEG segment overruns the file");
     }
-    offset += 2 + segLen;
+    const isSof =
+      marker >= 0xc0 && marker <= 0xcf &&
+      marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+    if (isSof) {
+      if (segLen < 7) fail("truncated JPEG Start-Of-Frame segment");
+      return [buf.readUInt16BE(pos + 7), buf.readUInt16BE(pos + 5)];
+    }
+    pos += 2 + segLen;
   }
-  if (!found) throw new Error("entry.png has no JPEG Start-Of-Frame segment");
+  fail("no Start-Of-Frame segment found");
 }
 
-if (width! > MAX_DIM || height! > MAX_DIM) {
-  throw new Error(
-    `entry.png is ${width}x${height}, over the ${MAX_DIM}x${MAX_DIM} cap`,
-  );
+const here = dirname(fileURLToPath(import.meta.url));
+const source = join(here, "entry.png");
+const buf = readFileSync(source);
+
+if (buf.length > MAX_BYTES) {
+  fail(`${buf.length} bytes exceeds the ${MAX_BYTES} byte cap`);
 }
 
-// --- Copy byte-for-byte --------------------------------------------------
+const kind = kindOf(buf);
+if (kind === null) fail("neither PNG nor JPEG (bad magic bytes)");
+
+const [width, height] = kind === "png" ? pngSize(buf) : jpegSize(buf);
+if (width > MAX_SIDE || height > MAX_SIDE) {
+  fail(`${width}x${height} exceeds the ${MAX_SIDE}x${MAX_SIDE} cap`);
+}
+
 const outDir = process.env.MAKEFUN_OUTPUT_DIR || "/output";
 mkdirSync(outDir, { recursive: true });
-const destPath = join(outDir, "entry.png");
-copyFileSync(sourcePath, destPath);
+const dest = join(outDir, "entry.png");
+copyFileSync(source, dest);
 
-console.log(`copied entry.png (${width}x${height}, ${size} bytes) -> ${destPath}`);
+console.log(
+  `copied entry.png (${kind}, ${width}x${height}, ${buf.length} bytes) -> ${dest}`,
+);
