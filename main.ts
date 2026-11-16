@@ -8,6 +8,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const MAX_BYTES = 1024 * 1024; // 1 MiB cap enforced by the bounty
+const MAX_DIMENSION = 1024; // max width/height in pixels
 const INPUT_NAME = "entry.png";
 const OUTPUT_NAME = "entry.png";
 
@@ -29,6 +30,32 @@ function isJpeg(buf: Buffer): boolean {
   return buf.length >= JPEG_MAGIC.length && buf.subarray(0, JPEG_MAGIC.length).equals(JPEG_MAGIC);
 }
 
+// PNG: width/height are big-endian uint32 at IHDR bytes 16-23.
+function pngDimensions(buf: Buffer): { width: number; height: number } {
+  if (buf.length < 24) throw new Error("PNG too short for an IHDR chunk");
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+}
+
+// JPEG: walk the segments until the first Start-Of-Frame marker (0xC0-0xCF
+// except 0xC4, 0xC8, 0xCC); its payload holds height then width, big-endian.
+function jpegDimensions(buf: Buffer): { width: number; height: number } {
+  let offset = 2; // skip SOI (FF D8)
+  while (offset + 9 <= buf.length) {
+    if (buf[offset] !== 0xff) throw new Error("malformed JPEG: expected segment marker");
+    const marker = buf[offset + 1];
+    const length = buf.readUInt16BE(offset + 2);
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { height: buf.readUInt16BE(offset + 5), width: buf.readUInt16BE(offset + 7) };
+    }
+    offset += 2 + length;
+  }
+  throw new Error("JPEG has no Start-Of-Frame segment");
+}
+
+function dimensions(buf: Buffer): { width: number; height: number } {
+  return isPng(buf) ? pngDimensions(buf) : jpegDimensions(buf);
+}
+
 function main(): void {
   if (!existsSync(inputPath)) {
     throw new Error(`input not found: ${inputPath}`);
@@ -45,6 +72,13 @@ function main(): void {
   if (data.length > MAX_BYTES) {
     throw new Error(`entry.png is ${data.length} bytes, over the ${MAX_BYTES} byte cap`);
   }
+
+  // 3. Dimension cap: parse width/height from the header, never decode pixels.
+  const { width, height } = dimensions(data);
+  if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+    throw new Error(`entry.png is ${width}x${height}, over the ${MAX_DIMENSION}x${MAX_DIMENSION} cap`);
+  }
+  console.log(`entry.png: ${width}x${height}, ${data.length} bytes`);
 
   mkdirSync(outDir, { recursive: true });
   writeFileSync(outputPath, data); // byte-for-byte copy, no re-encoding
