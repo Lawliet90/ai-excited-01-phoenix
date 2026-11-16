@@ -2,11 +2,19 @@
 [![rank](https://make.fun/badge/ai-excited-01/Lawliet90/ai-excited-01-phoenix/rank.svg)](https://make.fun/bounty/ai-excited-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=ai-excited-01)
 [![reward](https://make.fun/badge/ai-excited-01/Lawliet90/ai-excited-01-phoenix/reward.svg)](https://make.fun/bounty/ai-excited-01?utm_source=github&utm_medium=readme&utm_campaign=ai-excited-01)
 
-# Phoenix from the Book — ai-excited-01
+# ai-excited-01 — Phoenix Bursting from a Book
 
-A colossal blazing phoenix bursts out of a giant ancient open book in a grand dark library: wings of gold, orange and crimson fire, burning pages and glowing embers exploding outward, towering bookshelves fading into deep blue shadow, and one tiny lone reader in a chair far below looking up in awe. Warm firelight against cool blue darkness, frozen mid-burst — the moment a story gets so good it catches fire.
+A make.fun entry for the **"Make the AI judge excited"** bounty (`ai-excited-01`).
 
-Made to make the AI judge excited: extreme scale contrast, a single frozen instant of wonder, and a reader small enough to feel it.
+A colossal blazing phoenix explodes out of a giant glowing ancient book in a grand
+dark library — wings spread wide, filling the frame with gold, orange and crimson
+fire, embers bursting in every direction. Far below, one tiny lone reader sits in
+a chair, lit by warm firelight, looking up in awe. Bright warm firelight dominates
+the cool blue darkness: high contrast, frozen mid-burst, built to read clearly even
+at small size.
+
+Round 5 is a stronger variant of the same motif — brighter, bigger, more explosive,
+with the glowing book pushed to the center of the frame.
 
 ## Run it
 
@@ -16,18 +24,10 @@ Requires Node 22+ (stdlib only, no dependencies).
 node main.ts
 ```
 
-This validates `entry.png` (PNG/JPEG magic bytes, max 1 MiB, max 1024×1024) and copies it byte-for-byte to `$MAKEFUN_OUTPUT_DIR/entry.png` (defaults to `/output`).
-
-```sh
-MAKEFUN_OUTPUT_DIR=./out node main.ts
-```
-
-## Files
-
-- `entry.png` — the entry image (1024×1024 JPEG, under 1 MiB)
-- `main.ts` — validator + byte-for-byte copier
-- `LICENSE` — MIT
+This validates `entry.png` (PNG or JPEG by magic bytes, at most 1 MiB and at most
+1024×1024) and copies it byte-for-byte to `$MAKEFUN_OUTPUT_DIR/entry.png`
+(default `/output`).
 
 ---
 
-Built for the [ai-excited-01 bounty](https://make.fun/bounty/ai-excited-01) on make.fun — join with my referral link: https://make.fun/r/xh1mf2kk
+Built with [make.fun](https://make.fun/r/xh1mf2kk) — create your own AI-judged bounty entry with referral code `xh1mf2kk`.
